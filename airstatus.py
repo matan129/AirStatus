@@ -58,7 +58,7 @@ def parse_airpods_data(raw: bytes) -> dict:
     return dict(
         connected=True,
         model=model,
-        charge=dict(
+        levels=dict(
             case=parse_battery_level(raw[15]),
             **maybe_flip(
                 raw,
