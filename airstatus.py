@@ -3,7 +3,7 @@ import functools
 import json
 import time
 from binascii import hexlify
-from typing import Optional
+from typing import Optional, Any
 
 from bleak import discover
 
@@ -35,7 +35,7 @@ def fetch_airpods_raw_data() -> Optional[bytes]:
     devices = asyncio.run(discover())
 
     for d in devices:
-        data = d.metadata['manufacturer_data'].pop(AIRPODS_MANUFACTURER, None)
+        data = d.metadata["manufacturer_data"].pop(AIRPODS_MANUFACTURER, None)
 
         if d.rssi >= MIN_RSSI and data:
             data_hex = hexlify(data)
@@ -51,45 +51,54 @@ def parse_airpods_data(raw: bytes) -> dict:
         "2": "Airpods 1",
         "f": "Airpods 2",
         "e": "Airpods Pro",
-        "a": "Airpods Max"
+        "a": "Airpods Max",
     }.get(chr(raw[7]), "Unknown")
 
-    left_status = parse_battery_level(raw[13])
-    right_status = parse_battery_level(raw[12])
-    case_status = parse_battery_level(raw[15])
-
     charging_status = int(chr(raw[14]), 16)
-    left_charging = (charging_status & 0b00000001) != 0
-    right_charging = (charging_status & 0b00000010) != 0
-    case_charging = (charging_status & 0b00000100) != 0
-
-    flip = is_flipped(raw)
-
     return dict(
         connected=True,
+        model=model,
         charge=dict(
-            left=right_status if flip else left_status,
-            right=left_status if flip else right_status,
-            case=case_status
+            case=parse_battery_level(raw[15]),
+            **maybe_flip(
+                raw,
+                left=parse_battery_level(raw[13]),
+                right=parse_battery_level(raw[12]),
+            )
         ),
-        charging_left=right_charging if flip else left_charging,
-        charging_right=left_charging if flip else right_charging,
-        charging_case=case_charging,
-        model=model
+        charging=dict(
+            case=(charging_status & 0b00000100) != 0,
+            **maybe_flip(
+                raw,
+                left=(charging_status & 0b00000001) != 0,
+                right=(charging_status & 0b00000010) != 0,
+            )
+        ),
     )
 
 
-def parse_battery_level(raw_status: int) -> int:
+def parse_battery_level(raw_status: int) -> Optional[int]:
     raw_status = int(chr(raw_status), 16)
 
     if raw_status <= 10:
         return raw_status * 10
 
-    return -1
+    return None
 
 
-def is_flipped(raw):
-    return (int(chr(raw[10]), 16) & 0x02) == 0
+def maybe_flip(raw: bytes, *, left: Any, right: Any) -> dict:
+    is_flipped_ = (int(chr(raw[10]), 16) & 0x02) == 0
+
+    if is_flipped_:
+        return {
+            "right": left,
+            "left": right,
+        }
+
+    return {
+        "right": right,
+        "left": left,
+    }
 
 
 def main():
@@ -102,5 +111,5 @@ def main():
     print(json.dumps(parse_airpods_data(raw_data)))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
